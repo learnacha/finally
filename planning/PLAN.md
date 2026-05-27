@@ -66,7 +66,7 @@ The user runs a single Docker command (or a provided start script). A browser op
 - **Backend**: FastAPI (Python), managed as a `uv` project
 - **Database**: SQLite, single file at `db/finally.db`, volume-mounted for persistence
 - **Real-time data**: Server-Sent Events (SSE) — simpler than WebSockets, one-way server→client push, works everywhere
-- **AI integration**: LiteLLM → OpenRouter (Cerebras for fast inference), with structured outputs for trade execution
+- **AI integration**: LiteLLM → OpenRouter → Cerebras (`openrouter/openai/gpt-oss-120b`), with structured outputs for trade execution
 - **Market data**: Environment-variable driven — simulator by default, real data via Massive API if key provided
 
 ### Why These Choices
@@ -176,8 +176,27 @@ Both the simulator and the Massive client implement the same abstract interface.
 - Endpoint: `GET /api/stream/prices`
 - Long-lived SSE connection; client uses native `EventSource` API
 - Server pushes price updates for all tickers known to the system at a regular cadence (~500ms) — in the single-user model this is equivalent to the user's watchlist
-- Each SSE event contains ticker, price, previous price, timestamp, and change direction
+- Each SSE event is a JSON object keyed by ticker, containing price, previous price, change, change percent, direction, and timestamp:
+
+```json
+{
+  "AAPL": {
+    "ticker": "AAPL",
+    "price": 192.34,
+    "previous_price": 191.80,
+    "change": 0.54,
+    "change_percent": 0.2815,
+    "direction": "up",
+    "timestamp": 1748260800.123
+  },
+  "GOOGL": { "..." }
+}
+```
+
+- `change_percent` is used by the frontend to display daily change % in the watchlist
 - Client handles reconnection automatically (EventSource has built-in retry)
+
+Reference: [`backend/app/market/models.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/market/models.py), [`backend/app/market/stream.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/market/stream.py)
 
 ---
 
@@ -281,18 +300,20 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 
 ## 9. LLM Integration
 
-When writing code to make calls to LLMs, use cerebras-inference skill to use LiteLLM via OpenRouter to the `openrouter/openai/gpt-oss-120b` model with Cerebras as the inference provider. Structured Outputs should be used to interpret the results.
+When writing code to make calls to LLMs, use LiteLLM via OpenRouter with Cerebras as the inference provider, targeting the model `openrouter/openai/gpt-oss-120b`. Structured Outputs should be used to interpret the results.
 
 There is an OPENROUTER_API_KEY in the .env file in the project root.
+
+Reference implementation: [`backend/app/llm/service.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/llm/service.py)
 
 ### How It Works
 
 When the user sends a chat message, the backend:
 
 1. Loads the user's current portfolio context (cash, positions with P&L, watchlist with live prices, total portfolio value)
-2. Loads recent conversation history from the `chat_messages` table
+2. Loads the last 20 messages of conversation history from the `chat_messages` table
 3. Constructs a prompt with a system message, portfolio context, conversation history, and the user's new message
-4. Calls the LLM via LiteLLM → OpenRouter, requesting structured output, using the cerebras-inference skill
+4. Calls the LLM via LiteLLM → OpenRouter → Cerebras (`openrouter/openai/gpt-oss-120b`), requesting structured output
 5. Parses the complete structured JSON response
 6. Auto-executes any trades or watchlist changes specified in the response
 7. Stores the message and executed actions in `chat_messages`
@@ -309,14 +330,30 @@ The LLM is instructed to respond with JSON matching this schema:
     {"ticker": "AAPL", "side": "buy", "quantity": 10}
   ],
   "watchlist_changes": [
-    {"ticker": "PYPL", "action": "add"}
+    {"ticker": "PYPL", "action": "add"},
+    {"ticker": "NFLX", "action": "remove"}
   ]
 }
 ```
 
 - `message` (required): The conversational text shown to the user
 - `trades` (optional): Array of trades to auto-execute. Each trade goes through the same validation as manual trades (sufficient cash for buys, sufficient shares for sells)
-- `watchlist_changes` (optional): Array of watchlist modifications
+- `watchlist_changes` (optional): Array of watchlist modifications. `action` must be `"add"` or `"remove"`
+
+After execution, the `actions` field stored in `chat_messages` records results in this shape:
+
+```json
+{
+  "trades": [
+    {"status": "executed", "ticker": "AAPL", "side": "buy", "quantity": 10, "price": 190.50, "total": 1905.0, "error": null}
+  ],
+  "watchlist_changes": [
+    {"status": "applied", "ticker": "PYPL", "action": "add", "error": null}
+  ]
+}
+```
+
+Reference: [`backend/app/llm/models.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/llm/models.py)
 
 ### Auto-Execution
 
@@ -454,3 +491,54 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - Portfolio visualization: heatmap renders with correct colors, P&L chart has data points
 - AI chat (mocked): send a message, receive a response, trade execution appears inline
 - SSE resilience: disconnect and verify reconnection
+
+---
+
+## 13. Implementation Reference
+
+All answers below are confirmed against the reference implementation at [`finally-gsd`](https://github.com/ed-donner/finally/tree/finally-gsd).
+
+**LLM model**: `openrouter/openai/gpt-oss-120b` via Cerebras on OpenRouter. See [`backend/app/llm/service.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/llm/service.py).
+
+**Daily change % source**: The SSE event includes a `change_percent` field (computed per tick by the simulator/Massive client). The watchlist displays this as the "daily change %". It reflects change from the previous tick, not a true market-open baseline — this is acceptable for a simulated environment.
+
+**SSE event payload**: See Section 6 for the exact JSON structure. Reference: [`backend/app/market/models.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/market/models.py).
+
+**watchlist_changes actions**: `"action"` must be `"add"` or `"remove"`. See updated schema in Section 9. Reference: [`backend/app/llm/models.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/llm/models.py).
+
+**chat_messages.actions shape**: Mirrors LLM output with execution status added. See updated schema in Section 9. Reference: [`backend/app/llm/service.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/llm/service.py).
+
+**Chat history endpoint**: There is **no** `GET /api/chat` endpoint. Chat history is not reloaded on page refresh — conversation state is session-only on the frontend. The stored `chat_messages` rows are used only as LLM context on the backend.
+
+**Conversation history window**: Last **20 messages** are loaded as LLM context. Reference: `load_chat_history(db, limit=20)` in [`backend/app/llm/service.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/llm/service.py).
+
+**CORS**: No CORS middleware is configured. The app is designed to run in Docker (single origin). Local development should also run via Docker using the provided start scripts.
+
+**portfolio_snapshots on fresh start**: No snapshot is seeded at DB initialization. The P&L chart starts empty and fills in after the first 30-second background tick or first manual trade. An empty/minimal chart on first load is the expected behavior.
+
+**UUID primary keys**: All tables (`watchlist`, `positions`, `portfolio_snapshots`, `trades`, `chat_messages`) use `TEXT PRIMARY KEY` populated with `str(uuid4())`. This is the confirmed implementation — keep as-is.
+
+**users_profile table**: Exists exactly as described in Section 7. Single row `id="default"`, `cash_balance=10000.0`. Reference: [`backend/app/db/schema.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/db/schema.py).
+
+**docker-compose.yml**: A minimal convenience wrapper that mirrors the `docker run` command from Section 11. Contents:
+```yaml
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - finally-data:/app/db
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+volumes:
+  finally-data:
+```
+
+**Massive API**: `Massive` is a Python client library wrapping the **Polygon.io** REST API (`/v2/snapshot/locale/us/markets/stocks/tickers`). The env variable comment "Massive (Polygon.io)" is accurate — Massive is the library name, Polygon.io is the underlying data provider. Reference: [`backend/app/market/massive_client.py`](https://github.com/ed-donner/finally/blob/finally-gsd/backend/app/market/massive_client.py).
