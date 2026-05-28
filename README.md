@@ -1,95 +1,83 @@
 # FinAlly — AI Trading Workstation
 
-A visually stunning AI-powered trading workstation with live market data, simulated portfolio management, and an LLM chat assistant that can analyze positions and execute trades on your behalf.
+An AI-powered trading terminal with live streaming prices, a simulated portfolio, and an LLM chat assistant that can analyze positions and execute trades on your behalf.
 
-Built as a capstone project for an agentic AI coding course — constructed entirely by orchestrated AI coding agents.
+> Built entirely by orchestrated AI coding agents as a capstone project for an agentic AI coding course.
+
+![Dark terminal-inspired UI with watchlist, charts, portfolio heatmap, and AI chat panel]
+
+---
+
+## Quick Start
+
+```bash
+cp .env.example .env          # Add your OPENROUTER_API_KEY
+./scripts/start_mac.sh        # Builds image and opens http://localhost:8000
+```
+
+On Windows:
+```powershell
+.\scripts\start_windows.ps1
+```
+
+No login, no signup. You get $10,000 in virtual cash immediately.
 
 ---
 
 ## Features
 
-- 📈 **Live price streaming** — prices flash green/red on tick via SSE
-- 📊 **Sparkline mini-charts** — accumulated from the live stream since page load
-- 💼 **Simulated portfolio** — start with $10,000 virtual cash, buy/sell at market price instantly
-- 🗺️ **Portfolio heatmap** — treemap sized by weight, colored by P&L
-- 🤖 **AI chat assistant** — ask questions, get analysis, and have the AI execute trades via natural language
-- 🔍 **Watchlist management** — add/remove tickers manually or through the AI
+- **Live price stream** — tickers flash green/red on every tick via SSE
+- **Sparkline charts** — mini price charts built live from the stream since page load
+- **Buy & sell** — market orders, instant fill, no confirmation
+- **Portfolio heatmap** — treemap sized by weight, colored by P&L
+- **P&L chart** — total portfolio value over time
+- **AI chat assistant** — ask questions, get analysis, have the AI execute trades for you
+
+---
 
 ## Stack
 
-| Layer | Technology |
-|-------|-----------|
+| Layer | Tech |
+|---|---|
 | Frontend | Next.js (TypeScript, static export) |
-| Backend | FastAPI (Python, uv) |
+| Backend | FastAPI + Python (managed with `uv`) |
 | Database | SQLite (lazy-initialized, volume-mounted) |
-| Real-time | Server-Sent Events (SSE) |
-| AI | LiteLLM → OpenRouter → Cerebras (`openrouter/openai/gpt-oss-120b`) |
+| Real-time | Server-Sent Events (`/api/stream/prices`) |
+| AI | LiteLLM → OpenRouter → Cerebras (`gpt-oss-120b`) |
 | Market data | Built-in GBM simulator (or Polygon.io via `MASSIVE_API_KEY`) |
-| Deployment | Single Docker container on port 8000 |
+| Container | Single Docker container on port 8000 |
 
-## Quick Start
-
-### Prerequisites
-- Docker
-- An [OpenRouter](https://openrouter.ai) API key
-
-### Setup
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/learnacha/finally.git
-cd finally
-
-# 2. Create your .env file
-cp .env.example .env
-# Edit .env and set OPENROUTER_API_KEY=your-key-here
-
-# 3. Start the app
-./scripts/start_mac.sh        # macOS / Linux
-# or
-.\scripts\start_windows.ps1   # Windows PowerShell
-```
-
-Then open **http://localhost:8000** in your browser.
-
-To stop:
-```bash
-./scripts/stop_mac.sh
-```
+---
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENROUTER_API_KEY` | ✅ Yes | OpenRouter API key for LLM chat |
-| `MASSIVE_API_KEY` | No | Polygon.io key for real market data (simulator used if absent) |
-| `LLM_MOCK` | No | Set `true` for deterministic mock LLM responses (testing) |
+```bash
+OPENROUTER_API_KEY=   # Required — powers the AI chat assistant
+MASSIVE_API_KEY=      # Optional — real market data via Polygon.io (simulator used if unset)
+LLM_MOCK=false        # Set true for deterministic responses in tests
+```
+
+---
 
 ## Project Structure
 
 ```
 finally/
-├── frontend/          # Next.js TypeScript app
-├── backend/           # FastAPI uv project
-│   └── db/            # Schema & seed logic
-├── planning/          # Agent documentation & project spec
-├── scripts/           # Start/stop scripts
+├── frontend/          # Next.js static export
+├── backend/           # FastAPI + uv project
+├── planning/          # Agent documentation and project spec
+├── scripts/           # start/stop scripts for Mac and Windows
 ├── test/              # Playwright E2E tests
-├── db/                # SQLite volume mount (finally.db created at runtime)
-├── Dockerfile
-└── docker-compose.yml
+├── db/                # SQLite volume mount target (finally.db created at runtime)
+└── Dockerfile         # Multi-stage build (Node → Python)
 ```
 
-## AI Chat
+---
 
-The AI assistant (FinAlly) can:
-- Analyze your portfolio composition and P&L
-- Suggest and **automatically execute** trades
-- Add or remove tickers from your watchlist
-- Answer questions about your positions
+## Running Tests
 
-Trades execute immediately with no confirmation — it's simulated money, so the experience is fluid and agentic.
+```bash
+cd test && docker compose -f docker-compose.test.yml up --abort-on-container-exit
+```
 
-## Development
-
-See [`planning/PLAN.md`](planning/PLAN.md) for the full project specification, architecture decisions, API contracts, and implementation reference.
+Tests run with `LLM_MOCK=true` by default for speed and reproducibility.
