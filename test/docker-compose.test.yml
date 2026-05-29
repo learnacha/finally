@@ -1,0 +1,41 @@
+version: "3.9"
+
+# Test infrastructure: app container + Playwright runner
+# Usage: docker compose -f test/docker-compose.test.yml up --abort-on-container-exit --exit-code-from playwright
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - test-db:/app/db
+    environment:
+      - LLM_MOCK=true
+      - MASSIVE_API_KEY=
+      - OPENROUTER_API_KEY=test-mock-key
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.48.0-jammy
+    depends_on:
+      app:
+        condition: service_healthy
+    working_dir: /tests
+    volumes:
+      - ./:/tests
+      - playwright-results:/tests/test-results
+    environment:
+      - BASE_URL=http://app:8000
+    command: npx playwright test --reporter=list
+
+volumes:
+  test-db:
+  playwright-results:

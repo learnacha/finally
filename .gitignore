@@ -1,3 +1,23 @@
+# FinAlly project-specific ignores
+# SQLite database (runtime artifact, persisted via Docker volume)
+db/finally.db
+db/finally.db-shm
+db/finally.db-wal
+
+# Environment variables (contains secrets)
+.env
+
+# Frontend build artifacts
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+
+# Docker build context artifacts
+.dockerignore
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Python / uv
+# ──────────────────────────────────────────────────────────────────────────────
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

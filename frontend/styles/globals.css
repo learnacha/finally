@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --border: #30363d;
+  --accent-yellow: #ecad0a;
+  --accent-blue: #209dd7;
+  --accent-purple: #753991;
+  --positive: #3fb950;
+  --negative: #f85149;
+  --card-bg: #161b22;
+  --input-bg: #21262d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Price flash animations */
+@keyframes flash-green {
+  0% { background-color: rgba(63, 185, 80, 0.4); }
+  100% { background-color: transparent; }
+}
+
+@keyframes flash-red {
+  0% { background-color: rgba(248, 81, 73, 0.4); }
+  100% { background-color: transparent; }
+}
+
+.price-flash-up {
+  animation: flash-green 500ms ease-out;
+}
+
+.price-flash-down {
+  animation: flash-red 500ms ease-out;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* Tailwind CSS v4 theme */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
