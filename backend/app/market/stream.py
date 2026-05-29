@@ -1,51 +1,63 @@
+"""SSE streaming endpoint for live price updates."""
+
+from __future__ import annotations
+
 import asyncio
 import json
+import logging
+from collections.abc import AsyncGenerator
+
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from .base import MarketDataClient
+from .cache import PriceCache
 
-router = APIRouter(prefix="/api/stream", tags=["stream"])
-
-SSE_PUSH_INTERVAL = 0.5     # seconds between pushes to the client
-SSE_KEEPALIVE_AFTER = 15.0  # send a comment every 15s of silence to keep connection alive
+logger = logging.getLogger(__name__)
 
 
-@router.get("/prices")
-async def price_stream(request: Request):
-    client: MarketDataClient = request.app.state.market_client
-    return StreamingResponse(
-        _event_generator(request, client),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
+def create_stream_router(price_cache: PriceCache) -> APIRouter:
+    """Create the SSE streaming router with a reference to the price cache."""
+    router = APIRouter(prefix="/api/stream", tags=["streaming"])
+
+    @router.get("/prices")
+    async def stream_prices(request: Request) -> StreamingResponse:
+        return StreamingResponse(
+            _generate_events(price_cache, request),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    return router
 
 
-async def _event_generator(request: Request, client: MarketDataClient):
-    last_sent = 0.0
-    # Initial flush so the client sees something immediately
-    initial = client.get_all_prices()
-    if initial:
-        payload = {t: e.to_dict() for t, e in initial.items()}
-        yield f"data: {json.dumps(payload)}\n\n"
-        last_sent = asyncio.get_event_loop().time()
+async def _generate_events(
+    price_cache: PriceCache,
+    request: Request,
+    interval: float = 0.5,
+) -> AsyncGenerator[str, None]:
+    yield "retry: 1000\n\n"
+    last_version = -1
+    client_ip = request.client.host if request.client else "unknown"
+    logger.info("SSE client connected: %s", client_ip)
 
-    while True:
-        if await request.is_disconnected():
-            return
+    try:
+        while True:
+            if await request.is_disconnected():
+                logger.info("SSE client disconnected: %s", client_ip)
+                break
 
-        prices = client.get_all_prices()
-        now = asyncio.get_event_loop().time()
-        if prices:
-            payload = {t: e.to_dict() for t, e in prices.items()}
-            yield f"data: {json.dumps(payload)}\n\n"
-            last_sent = now
-        elif now - last_sent > SSE_KEEPALIVE_AFTER:
-            yield ": keepalive\n\n"
-            last_sent = now
+            current_version = price_cache.version
+            if current_version != last_version:
+                last_version = current_version
+                prices = price_cache.get_all()
+                if prices:
+                    data = {ticker: update.to_dict() for ticker, update in prices.items()}
+                    yield f"data: {json.dumps(data)}\n\n"
 
-        await asyncio.sleep(SSE_PUSH_INTERVAL)
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        logger.info("SSE stream cancelled for: %s", client_ip)

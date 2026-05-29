@@ -1,24 +1,29 @@
+"""Factory for creating market data sources."""
+
+from __future__ import annotations
+
 import logging
 import os
-from .base import MarketDataClient
 
-log = logging.getLogger(__name__)
+from .cache import PriceCache
+from .interface import MarketDataSource
+from .massive_client import MassiveDataSource
+from .simulator import SimulatorDataSource
+
+logger = logging.getLogger(__name__)
 
 
-def create_market_client() -> MarketDataClient:
+def create_market_data_source(price_cache: PriceCache) -> MarketDataSource:
+    """Create the appropriate market data source based on environment variables.
+
+    - MASSIVE_API_KEY set and non-empty → MassiveDataSource (real market data)
+    - Otherwise → SimulatorDataSource (GBM simulation)
     """
-    Select the market data implementation based on environment.
-
-    MASSIVE_API_KEY set & non-empty → MassiveMarketClient (real data)
-    MASSIVE_API_KEY absent / empty  → SimulatorMarketClient (GBM sim)
-    """
-    api_key = os.getenv("MASSIVE_API_KEY", "").strip()
+    api_key = os.environ.get("MASSIVE_API_KEY", "").strip()
 
     if api_key:
-        from .massive_client import MassiveMarketClient
-        log.info("market: using Massive (Polygon.io) real market data")
-        return MassiveMarketClient(api_key=api_key)
-
-    from .simulator import SimulatorMarketClient
-    log.info("market: using built-in GBM simulator (no MASSIVE_API_KEY)")
-    return SimulatorMarketClient()
+        logger.info("Market data source: Massive API (real data)")
+        return MassiveDataSource(api_key=api_key, price_cache=price_cache)
+    else:
+        logger.info("Market data source: GBM Simulator")
+        return SimulatorDataSource(price_cache=price_cache)

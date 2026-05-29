@@ -1,46 +1,49 @@
-from dataclasses import dataclass
-from typing import Literal
+"""Data models for market data."""
 
-Direction = Literal["up", "down", "flat"]
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
 
 
-@dataclass(slots=True)
-class PriceEvent:
-    """A single price update for one ticker."""
+@dataclass(frozen=True, slots=True)
+class PriceUpdate:
+    """Immutable snapshot of a single ticker's price at a point in time."""
+
     ticker: str
     price: float
     previous_price: float
-    change: float          # absolute $ change vs session-open (sim) / vs prevClose (Massive)
-    change_percent: float  # percentage form of `change`
-    direction: Direction   # "up" | "down" | "flat" — tick-to-tick movement
-    timestamp: float       # unix epoch seconds (float for sub-second precision)
+    timestamp: float = field(default_factory=time.time)  # Unix seconds
+
+    @property
+    def change(self) -> float:
+        """Absolute price change from previous update."""
+        return round(self.price - self.previous_price, 4)
+
+    @property
+    def change_percent(self) -> float:
+        """Percentage change from previous update."""
+        if self.previous_price == 0:
+            return 0.0
+        return round((self.price - self.previous_price) / self.previous_price * 100, 4)
+
+    @property
+    def direction(self) -> str:
+        """'up', 'down', or 'flat'."""
+        if self.price > self.previous_price:
+            return "up"
+        elif self.price < self.previous_price:
+            return "down"
+        return "flat"
 
     def to_dict(self) -> dict:
+        """Serialize for JSON / SSE transmission."""
         return {
             "ticker": self.ticker,
-            "price": round(self.price, 4),
-            "previous_price": round(self.previous_price, 4),
-            "change": round(self.change, 4),
-            "change_percent": round(self.change_percent, 4),
-            "direction": self.direction,
+            "price": self.price,
+            "previous_price": self.previous_price,
             "timestamp": self.timestamp,
+            "change": self.change,
+            "change_percent": self.change_percent,
+            "direction": self.direction,
         }
-
-
-# Seed prices used by both implementations.
-# Simulator: starting price for the GBM walk.
-# Massive: fallback if a snapshot arrives without trade/day/prevDay data.
-SEED_PRICES: dict[str, float] = {
-    "AAPL":  190.00,
-    "GOOGL": 175.00,
-    "MSFT":  415.00,
-    "AMZN":  185.00,
-    "TSLA":  175.00,
-    "NVDA":  875.00,
-    "META":  490.00,
-    "JPM":   195.00,
-    "V":     270.00,
-    "NFLX":  630.00,
-}
-
-DEFAULT_TICKERS: list[str] = list(SEED_PRICES.keys())
