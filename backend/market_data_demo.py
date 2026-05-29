@@ -1,17 +1,20 @@
-"""FinAlly Market Data Simulator Demo.
+"""FinAlly Market Data Demo.
 
-Run with:  uv run market_data_demo.py
-
-Displays a live-updating terminal dashboard of simulated stock prices
-using the GBM simulator and Rich library.
+Run with:
+  uv run market_data_demo.py           # auto: live if MASSIVE_API_KEY set, else simulator
+  uv run market_data_demo.py sim       # force simulator
+  uv run market_data_demo.py live      # force live (requires MASSIVE_API_KEY)
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 import time
 from collections import deque
 
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -19,7 +22,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+load_dotenv()
+
 from app.market.cache import PriceCache
+from app.market.factory import create_market_data_source
 from app.market.seed_prices import SEED_PRICES
 from app.market.simulator import SimulatorDataSource
 
@@ -154,7 +160,24 @@ def print_summary(cache: PriceCache) -> None:
 
 async def run() -> None:
     cache = PriceCache()
-    source = SimulatorDataSource(price_cache=cache, update_interval=0.5)
+    arg = sys.argv[1].lower() if len(sys.argv) > 1 else "auto"
+
+    if arg == "sim":
+        source = SimulatorDataSource(price_cache=cache)
+        mode = "GBM Simulator (forced)"
+    elif arg == "live":
+        from app.market.massive_client import MassiveDataSource
+        api_key = os.environ.get("MASSIVE_API_KEY", "").strip()
+        if not api_key:
+            Console().print("[bold red]Error:[/] MASSIVE_API_KEY not set in .env")
+            return
+        source = MassiveDataSource(api_key=api_key, price_cache=cache)
+        mode = "Massive (live, forced)"
+    else:
+        source = create_market_data_source(cache)
+        mode = "Massive (live)" if os.environ.get("MASSIVE_API_KEY", "").strip() else "GBM Simulator"
+
+    Console().print(f"[bold bright_yellow]Market data source:[/] [bright_white]{mode}[/]")
     history: dict[str, deque] = {t: deque(maxlen=40) for t in TICKERS}
     events: deque = deque(maxlen=12)
 
