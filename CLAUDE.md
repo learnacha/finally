@@ -2,6 +2,7 @@
 
 All project documentation is in the `planning` directory.
 
+The key document is PLAN.md, included in full below. The market data component has been completed and is summarized in the file planning/market_data_simulator.md, with more details in the planning/archive folder. Consult these docs only when required. The remainder of the platform is still to be developed. 
 The key document is PLAN.md included in full here:
 
 @planning/PLAN.md
